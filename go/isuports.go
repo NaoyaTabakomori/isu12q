@@ -28,6 +28,8 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+
+	"cloud.google.com/go/profiler"
 )
 
 const (
@@ -120,6 +122,15 @@ func Run() {
 	e := echo.New()
 	e.Debug = false
 	e.Logger.SetLevel(log.INFO)
+
+	cfg := profiler.Config{
+		Service:        "isu12q",
+		ServiceVersion: "v0.0.1",
+		ProjectID:      os.Getenv("GCP_PROJECT_ID"),
+	}
+	if err := profiler.Start(cfg); err != nil {
+		panic(err)
+	}
 
 	var (
 		sqlLogger io.Closer
@@ -358,6 +369,19 @@ func retrievePlayer(ctx context.Context, tenantDB dbOrTx, id string) (*PlayerRow
 		return nil, fmt.Errorf("error Select player: id=%s, %w", id, err)
 	}
 	return &p, nil
+}
+
+func retrievePlayers(ctx context.Context, tenantDB dbOrTx, ids []string) ([]*PlayerRow, error) {
+	var p []*PlayerRow
+	sql := `SELECT * FROM player WHERE id IN (?)`
+	sql, params, err := sqlx.In(sql, ids)
+	if err != nil {
+		return nil, err
+	}
+	if err := tenantDB.SelectContext(ctx, &p, sql, params...); err != nil {
+		return nil, fmt.Errorf("error Select players: ids=%v, %w", ids, err)
+	}
+	return p, nil
 }
 
 // 参加者を認可する
@@ -1090,7 +1114,16 @@ func competitionScoreHandler(c echo.Context) error {
 	); err != nil {
 		return fmt.Errorf("error Delete player_score: tenantID=%d, competitionID=%s, %w", v.tenantID, competitionID, err)
 	}
+	// rowNumが最大のものを登録する
+	sort.Slice(playerScoreRows, func(i, j int) bool {
+		return playerScoreRows[i].RowNum > playerScoreRows[j].RowNum
+	})
+	playerIDMap := make(map[string]bool)
 	for _, ps := range playerScoreRows {
+		if playerIDMap[ps.PlayerID] {
+			continue
+		}
+		playerIDMap[ps.PlayerID] = true
 		if _, err := tenantDB.NamedExecContext(
 			ctx,
 			"INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
@@ -1359,6 +1392,20 @@ func competitionRankingHandler(c echo.Context) error {
 	); err != nil {
 		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
 	}
+
+	playerIDs := make([]string, 0, len(pss))
+	for _, ps := range pss {
+		playerIDs = append(playerIDs, ps.PlayerID)
+	}
+	players, err := retrievePlayers(ctx, tenantDB, playerIDs)
+	if err != nil {
+		return fmt.Errorf("error retrievePlayer: %w", err)
+	}
+	playerMap := make(map[string]*PlayerRow)
+	for _, p := range players {
+		playerMap[p.ID] = p
+	}
+
 	ranks := make([]CompetitionRank, 0, len(pss))
 	scoredPlayerSet := make(map[string]struct{}, len(pss))
 	for _, ps := range pss {
@@ -1368,10 +1415,7 @@ func competitionRankingHandler(c echo.Context) error {
 			continue
 		}
 		scoredPlayerSet[ps.PlayerID] = struct{}{}
-		p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
-		if err != nil {
-			return fmt.Errorf("error retrievePlayer: %w", err)
-		}
+		p := playerMap[ps.PlayerID]
 		ranks = append(ranks, CompetitionRank{
 			Score:             ps.Score,
 			PlayerID:          p.ID,
