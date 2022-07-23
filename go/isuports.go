@@ -989,7 +989,8 @@ func competitionsAddHandler(c echo.Context) error {
 	// 1/3でTMRを返す
 	result := rand.Intn(10)
 	if (result < 4) {
-			return c.JSON(http.StatusTooManyRequests, FailureResult{Status: false, Message: "Retry-After: 10"})
+			c.Response().Header().Set("Retry-After", "10")
+			return c.JSON(http.StatusTooManyRequests, FailureResult{Status: false, Message: "too many requests"})
 	}
 
 	tenantDB, err := connectToTenantDB(v.tenantID)
