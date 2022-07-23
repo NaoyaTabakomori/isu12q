@@ -616,8 +616,7 @@ type VisitHistorySummaryRow struct {
 }
 
 type VhsBlob struct {
-	PlayerID     string
-	MinCreatedAt int64
+	Vhss []*VisitHistorySummaryRow
 }
 
 func getVhsByComps(ctx context.Context, tenantID int64, competitionIDs []string) ([]*VisitHistorySummaryRow, error) {
@@ -800,17 +799,19 @@ func tenantsBillingHandler(c echo.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to getVhs: %w", err)
 			}
-			var vhsMap map[string][]*VisitHistorySummaryRow
+			var vhsMap map[string]*VhsBlob
 			for _, vhs := range vhss {
 				if _, ok := vhsMap[vhs.CompetitionID]; !ok {
-					var v []*VisitHistorySummaryRow
-					vhsMap[vhs.CompetitionID] = v
+					blob := &VhsBlob{}
+					var rows []*VisitHistorySummaryRow
+					blob.Vhss = rows
+					vhsMap[vhs.CompetitionID] = blob
 				}
-				vhsMap[vhs.CompetitionID] = append(vhsMap[vhs.CompetitionID], vhs)
+				vhsMap[vhs.CompetitionID].Vhss = append(vhsMap[vhs.CompetitionID].Vhss, vhs)
 			}
 
 			for _, comp := range cs {
-				report, err := billingReportByCompetitionWithVhs(ctx, tenantDB, t.ID, comp.ID, vhsMap[comp.ID])
+				report, err := billingReportByCompetitionWithVhs(ctx, tenantDB, t.ID, comp.ID, vhsMap[comp.ID].Vhss)
 				if err != nil {
 					return fmt.Errorf("failed to billingReportByCompetition: %w", err)
 				}
