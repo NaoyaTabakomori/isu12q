@@ -54,7 +54,6 @@ var (
 	sqliteDriverName = "sqlite3"
 
 	playerNameCache = map[string]string{}
-
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -89,7 +88,6 @@ func connectVHDB() (*sqlx.DB, error) {
 	dsn := config.FormatDSN()
 	return sqlx.Open("mysql", dsn)
 }
-
 
 // テナントDBのパスを返す
 func tenantDBPath(id int64) string {
@@ -624,15 +622,31 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 
 	// ランキングにアクセスした参加者のIDを取得する
 	vhs := []VisitHistorySummaryRow{}
-	if err := vhDB.SelectContext(
-		ctx,
-		&vhs,
-		"SELECT player_id, created_at AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ?",
-		tenantID,
-		comp.ID,
-	); err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
+
+	if tenant_id%2 == 0 {
+
+		if err := vhDB.SelectContext(
+			ctx,
+			&vhs,
+			"SELECT player_id, created_at AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ?",
+			tenantID,
+			comp.ID,
+		); err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
+		}
+	} else {
+		if err := adminDB.SelectContext(
+			ctx,
+			&vhs,
+			"SELECT player_id, created_at AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ?",
+			tenantID,
+			comp.ID,
+		); err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
+		}
+
 	}
+
 	billingMap := map[string]string{}
 	for _, vh := range vhs {
 		// competition.finished_atよりもあとの場合は、終了後に訪問したとみなして大会開催内アクセス済みとみなさない
@@ -757,7 +771,6 @@ func tenantsBillingHandler(c echo.Context) error {
 			}
 			defer tenantDB.Close()
 
-
 			cs := []CompetitionRow{}
 			if err := tenantDB.SelectContext(
 				ctx,
@@ -767,7 +780,6 @@ func tenantsBillingHandler(c echo.Context) error {
 			); err != nil {
 				return fmt.Errorf("failed to Select competition: %w", err)
 			}
-
 
 			for _, comp := range cs {
 				report, err := billingReportByCompetition(ctx, tenantDB, t.ID, comp.ID)
@@ -1498,15 +1510,30 @@ func competitionRankingHandler(c echo.Context) error {
 		return fmt.Errorf("error Select tenant: id=%d, %w", v.tenantID, err)
 	}
 
-	if _, err := vhDB.ExecContext(
-		ctx,
-		"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE updated_at = ?",
-		v.playerID, tenant.ID, competitionID, now, now, now,
-	); err != nil {
-		return fmt.Errorf(
-			"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
-			v.playerID, tenant.ID, competitionID, now, now, err,
-		)
+	if tenant_id%2 == 0 {
+
+		if _, err := vhDB.ExecContext(
+			ctx,
+			"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE updated_at = ?",
+			v.playerID, tenant.ID, competitionID, now, now, now,
+		); err != nil {
+			return fmt.Errorf(
+				"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
+				v.playerID, tenant.ID, competitionID, now, now, err,
+			)
+		}
+	} else {
+		if _, err := adminDB.ExecContext(
+			ctx,
+			"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE updated_at = ?",
+			v.playerID, tenant.ID, competitionID, now, now, now,
+		); err != nil {
+			return fmt.Errorf(
+				"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
+				v.playerID, tenant.ID, competitionID, now, now, err,
+			)
+		}
+
 	}
 
 	var rankAfter int64
