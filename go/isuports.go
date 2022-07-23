@@ -55,10 +55,11 @@ var (
 
 	sqliteDriverName = "sqlite3"
 
-	playerNameCache   = map[string]string{}
-	billingCache      = cache.New(60*time.Second, 60*time.Second)
-	visitHistoryCache = make(map[string][]string)
-	mux               sync.RWMutex
+	playerNameCache     = map[string]string{}
+	billingCache        = cache.New(60*time.Second, 60*time.Second)
+	visitHistoryCache   = make(map[string][]string)
+	visitCreatedAtCache = make(map[string]int64)
+	mux                 sync.RWMutex
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -633,6 +634,10 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 	billingMap := map[string]string{}
 	mux.RLock()
 	for _, playerID := range visitHistoryCache[cacheKey] {
+		createdAt := visitCreatedAtCache[cacheKey+"-"+playerID]
+		if comp.FinishedAt.Valid && comp.FinishedAt.Int64 < createdAt {
+			continue
+		}
 		billingMap[playerID] = "visitor"
 	}
 	mux.RUnlock()
@@ -1506,11 +1511,10 @@ func competitionRankingHandler(c echo.Context) error {
 	}
 	if val, _ := ret.RowsAffected(); val == 1 {
 		key := fmt.Sprintf("%d-%s", tenant.ID, competitionID)
-		if !competition.FinishedAt.Valid || now <= competition.FinishedAt.Int64 {
-			mux.Lock()
-			visitHistoryCache[key] = append(visitHistoryCache[key], v.playerID)
-			mux.Unlock()
-		}
+		mux.Lock()
+		visitHistoryCache[key] = append(visitHistoryCache[key], v.playerID)
+		visitCreatedAtCache[key+"-"+v.playerID] = now
+		mux.Unlock()
 	}
 
 	var rankAfter int64
