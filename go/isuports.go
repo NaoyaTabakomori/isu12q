@@ -446,16 +446,16 @@ func retrieveCompetition(ctx context.Context, tenantDB dbOrTx, id string) (*Comp
 }
 
 func retrieveCompetitions(ctx context.Context, tenantDB dbOrTx, ids []string) ([]*CompetitionRow, error) {
-	cs := []*CompetitionRow{}
-	if err := tenantDB.SelectContext(
-		ctx,
-		&cs,
-		"SELECT * FROM competition WHERE id IN (?)",
-		ids,
-	); err != nil {
-		return nil, fmt.Errorf("error Select competition: ids=%s, %w", ids, err)
+	var c []*CompetitionRow
+	sql := `SELECT * FROM competition WHERE id IN (?)`
+	sql, params, err := sqlx.In(sql, ids)
+	if err != nil {
+		return nil, err
 	}
-	return cs, nil
+	if err := tenantDB.SelectContext(ctx, &c, sql, params...); err != nil {
+		return nil, fmt.Errorf("error Select competitions: ids=%v, %w", ids, err)
+	}
+	return c, nil
 }
 
 type PlayerScoreRow struct {
