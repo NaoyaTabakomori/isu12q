@@ -1242,25 +1242,55 @@ func playerHandler(c echo.Context) error {
 	}
 	defer fl.Close()
 	pss := make([]PlayerScoreRow, 0, len(cs))
+
+	cids := []string{}
 	for _, c := range cs {
-		ps := PlayerScoreRow{}
-		if err := tenantDB.GetContext(
-			ctx,
-			&ps,
-			// 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
-			"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? AND player_id = ? ORDER BY row_num DESC LIMIT 1",
-			v.tenantID,
-			c.ID,
-			p.ID,
-		); err != nil {
-			// 行がない = スコアが記録されてない
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, playerID=%s, %w", v.tenantID, c.ID, p.ID, err)
-		}
-		pss = append(pss, ps)
+		cids = append(cids, c.ID)
 	}
+
+	cIDMap := make(map[string]bool)
+	for _, c := range cs {
+		cIDMap[c.ID] = true
+	}
+	if err := tenantDB.SelectContext(
+		ctx,
+		&pss,
+		"SELECT * FROM player_score WHERE tenant_id = ? AND player_id = ?",
+		v.tenantID,
+		p.ID,
+	); err != nil {
+		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", v.tenantID, err)
+	}
+
+	pss_tmp := []PlayerScoreRow{}
+	for _, ps := range pss {
+		if _, ok := cIDMap[ps.CompetitionID]; ok {
+			pss_tmp = append(pss_tmp, ps)
+		}
+	}
+	pss = pss_tmp
+
+	/*
+		for _, c := range cs {
+			ps := PlayerScoreRow{}
+			if err := tenantDB.GetContext(
+				ctx,
+				&ps,
+				// 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
+				"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? AND player_id = ? ORDER BY row_num DESC LIMIT 1",
+				v.tenantID,
+				c.ID,
+				p.ID,
+			); err != nil {
+				// 行がない = スコアが記録されてない
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, playerID=%s, %w", v.tenantID, c.ID, p.ID, err)
+			}
+			pss = append(pss, ps)
+		}
+	*/
 
 	psds := make([]PlayerScoreDetail, 0, len(pss))
 	for _, ps := range pss {
