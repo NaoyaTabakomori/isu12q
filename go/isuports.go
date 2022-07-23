@@ -585,27 +585,44 @@ type VisitHistorySummaryRow struct {
 	MinCreatedAt int64  `db:"min_created_at"`
 }
 
+func getVhs(ctx context.Context, tenantID int64, competitionIDs []string) ([]*VisitHistorySummaryRow, error) {
+	// ランキングにアクセスした参加者のIDを取得する
+	vhs := []*VisitHistorySummaryRow
+	if err := adminDB.SelectContext(
+		ctx,
+		&vhs,
+		"SELECT player_id, created_at AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id IN(?)",
+		tenantID,
+		competitionIDs,
+	); err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
+	}
+	return vhs, nil
+}
+
 // 大会ごとの課金レポートを計算する
-func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string) (*BillingReport, error) {
+func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitionID string) (*BillingReport, error) {
+	vhs, _ := getVhs(ctx, tenantID, []string{competitionID})
+	return billingReportByCompetitionInternal(ctx, tenantDB, tenantID, []string{competitionID}, vhs)
+}
+
+func billingReportByCompetitionMulti(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitionIDs []string) (*BillingReport, error) {
+	vhs, _ := getVhs(ctx, tenantID, competitionIDs)
+	return billingReportByCompetitionInternal(ctx, tenantDB, tenantID, competitionIDs, vhs)
+}
+
+func billingReportByCompetitionInternal(ctx context.Context, tenantDB dbOrTx, tenantID int64,  competitionIDs []string, vhs []*VisitHistorySummaryRow) (*BillingReport, error) {
+	/*
 	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieveCompetition: %w", err)
 	}
+	*/
 
-	// ランキングにアクセスした参加者のIDを取得する
-	vhs := []VisitHistorySummaryRow{}
-	if err := adminDB.SelectContext(
-		ctx,
-		&vhs,
-		"SELECT player_id, created_at AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ?",
-		tenantID,
-		comp.ID,
-	); err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
-	}
 	billingMap := map[string]string{}
-	for _, vh := range vhs {
+	for i, vh := range vhs {
 		// competition.finished_atよりもあとの場合は、終了後に訪問したとみなして大会開催内アクセス済みとみなさない
+		comp, _ := retrieveCompetition(ctx, tenantDB, competitionIDs[i])
 		if comp.FinishedAt.Valid && comp.FinishedAt.Int64 < vh.MinCreatedAt {
 			continue
 		}
@@ -741,13 +758,17 @@ func tenantsBillingHandler(c echo.Context) error {
 			); err != nil {
 				return fmt.Errorf("failed to Select competition: %w", err)
 			}
-			for _, comp := range cs {
-				report, err := billingReportByCompetition(ctx, tenantDB, t.ID, comp.ID)
-				if err != nil {
-					return fmt.Errorf("failed to billingReportByCompetition: %w", err)
-				}
-				tb.BillingYen += report.BillingYen
+			cids := []string{}
+			for _, c := range cs {
+				cids = append(cids, c.ID)
 			}
+
+			report, err := billingReportByCompetitionMulti(ctx, tenantDB, t.ID, cids)
+			if err != nil {
+				return fmt.Errorf("failed to billingReportByCompetition: %w", err)
+			}
+			tb.BillingYen += report.BillingYen
+
 			tenantBillings = append(tenantBillings, tb)
 			return nil
 		}(t)
