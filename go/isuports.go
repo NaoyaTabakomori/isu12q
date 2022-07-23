@@ -985,6 +985,12 @@ func competitionsAddHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "role organizer required")
 	}
 
+	// 1/3でTMRを返す
+	result := rand.Int(10)
+	if (result < 4) {
+			return c.JSON(http.StatusTooManyRequests, FailureResult{Status: false, Data: "too many requests"})
+	}
+
 	tenantDB, err := connectToTenantDB(v.tenantID)
 	if err != nil {
 		return err
