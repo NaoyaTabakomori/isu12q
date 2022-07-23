@@ -28,6 +28,8 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+
+	"cloud.google.com/go/profiler"
 )
 
 const (
@@ -120,6 +122,15 @@ func Run() {
 	e := echo.New()
 	e.Debug = false
 	e.Logger.SetLevel(log.INFO)
+
+	cfg := profiler.Config{
+		Service:        "isu12q",
+		ServiceVersion: "v0.0.1",
+		ProjectID:      os.Getenv("GCP_PROJECT_ID"),
+	}
+	if err := profiler.Start(cfg); err != nil {
+		panic(err)
+	}
 
 	var (
 		sqlLogger io.Closer

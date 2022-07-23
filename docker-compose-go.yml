@@ -8,6 +8,8 @@ services:
       ISUCON_DB_PASSWORD: isucon
       ISUCON_DB_NAME: isuports
       ISUCON_SQLITE_TRACE_FILE: /home/isucon/tmp/sqlite_trace
+      GCP_PROJECT_ID: isucon-323415
+      GOOGLE_APPLICATION_CREDENTIALS: /home/isucon/tmp/isucon-323415-327056901234.json
     network_mode: host
     volumes:
       - /home/isucon/webapp/tenant_db:/home/isucon/webapp/tenant_db
