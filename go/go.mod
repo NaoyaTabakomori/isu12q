@@ -12,6 +12,7 @@ require (
 	github.com/labstack/gommon v0.3.1
 	github.com/lestrrat-go/jwx/v2 v2.0.2
 	github.com/mattn/go-sqlite3 v1.14.13
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/shogo82148/go-sql-proxy v0.6.1
 )
 

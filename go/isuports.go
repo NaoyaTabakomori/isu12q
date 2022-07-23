@@ -28,6 +28,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/patrickmn/go-cache"
 
 	"cloud.google.com/go/profiler"
 )
@@ -54,7 +55,7 @@ var (
 	sqliteDriverName = "sqlite3"
 
 	playerNameCache = map[string]string{}
-
+	billingCache    = cache.New(60*time.Second, 60*time.Second)
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -89,7 +90,6 @@ func connectVHDB() (*sqlx.DB, error) {
 	dsn := config.FormatDSN()
 	return sqlx.Open("mysql", dsn)
 }
-
 
 // テナントDBのパスを返す
 func tenantDBPath(id int64) string {
@@ -617,6 +617,11 @@ type VisitHistorySummaryRow struct {
 
 // 大会ごとの課金レポートを計算する
 func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string) (*BillingReport, error) {
+	cacheKey := fmt.Sprintf("%s-%s", tenantID, competitonID)
+	cache, ok := billingCache.Get(cacheKey)
+	if ok {
+		return cache.(*BillingReport), nil
+	}
 	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieveCompetition: %w", err)
@@ -676,7 +681,7 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 			}
 		}
 	}
-	return &BillingReport{
+	ret := &BillingReport{
 		CompetitionID:     comp.ID,
 		CompetitionTitle:  comp.Title,
 		PlayerCount:       playerCount,
@@ -684,7 +689,9 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 		BillingPlayerYen:  100 * playerCount, // スコアを登録した参加者は100円
 		BillingVisitorYen: 10 * visitorCount, // ランキングを閲覧だけした(スコアを登録していない)参加者は10円
 		BillingYen:        100*playerCount + 10*visitorCount,
-	}, nil
+	}
+	billingCache.Set(cacheKey, ret, 2*time.Second)
+	return ret, nil
 }
 
 type TenantWithBilling struct {
@@ -757,7 +764,6 @@ func tenantsBillingHandler(c echo.Context) error {
 			}
 			defer tenantDB.Close()
 
-
 			cs := []CompetitionRow{}
 			if err := tenantDB.SelectContext(
 				ctx,
@@ -767,7 +773,6 @@ func tenantsBillingHandler(c echo.Context) error {
 			); err != nil {
 				return fmt.Errorf("failed to Select competition: %w", err)
 			}
-
 
 			for _, comp := range cs {
 				report, err := billingReportByCompetition(ctx, tenantDB, t.ID, comp.ID)
