@@ -54,7 +54,6 @@ var (
 	sqliteDriverName = "sqlite3"
 
 	playerNameCache = map[string]string{}
-
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -89,7 +88,6 @@ func connectVHDB() (*sqlx.DB, error) {
 	dsn := config.FormatDSN()
 	return sqlx.Open("mysql", dsn)
 }
-
 
 // テナントDBのパスを返す
 func tenantDBPath(id int64) string {
@@ -622,9 +620,9 @@ type VhsBlob struct {
 	MinCreatedAt int64
 }
 
-func getVhsByComps(ctx context.Context, tenantID int64, competitionIDs []string) ([]VisitHistorySummaryRow, error) {
+func getVhsByComps(ctx context.Context, tenantID int64, competitionIDs []string) ([]*VisitHistorySummaryRow, error) {
 	// ランキングにアクセスした参加者のIDを取得する
-	vhs := []VisitHistorySummaryRow{}
+	var vhs []*VisitHistorySummaryRow
 	if err := vhDB.SelectContext(
 		ctx,
 		&vhs,
@@ -637,7 +635,7 @@ func getVhsByComps(ctx context.Context, tenantID int64, competitionIDs []string)
 	return vhs, nil
 }
 
-func billingReportByCompetitionWithVhs(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitionID string, vhs []VisitHistorySummaryRow) (*BillingReport, error) {
+func billingReportByCompetitionWithVhs(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitionID string, vhs []*VisitHistorySummaryRow) (*BillingReport, error) {
 	return billingReportByCompetitionInternal(ctx, tenantDB, tenantID, competitionID, vhs)
 }
 
@@ -647,7 +645,7 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 }
 
 // 大会ごとの課金レポートを計算する
-func billingReportByCompetitionInternal(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string, vhs []VisitHistorySummaryRow) (*BillingReport, error) {
+func billingReportByCompetitionInternal(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string, vhs []*VisitHistorySummaryRow) (*BillingReport, error) {
 	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieveCompetition: %w", err)
@@ -784,7 +782,6 @@ func tenantsBillingHandler(c echo.Context) error {
 			}
 			defer tenantDB.Close()
 
-
 			cs := []CompetitionRow{}
 			if err := tenantDB.SelectContext(
 				ctx,
@@ -803,14 +800,14 @@ func tenantsBillingHandler(c echo.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to getVhs: %w", err)
 			}
-			vhsMap := map[string][]VisitHistorySummaryRow{}
+			var vhsMap map[string][]*VisitHistorySummaryRow
 			for _, vhs := range vhss {
 				if _, ok := vhsMap[vhs.CompetitionID]; !ok {
-					vhsMap[vhs.CompetitionID] = []VisitHistorySummaryRow{}
+					var v []*VisitHistorySummaryRow
+					vhsMap[vhs.CompetitionID] = v
 				}
 				vhsMap[vhs.CompetitionID] = append(vhsMap[vhs.CompetitionID], vhs)
 			}
-
 
 			for _, comp := range cs {
 				report, err := billingReportByCompetitionWithVhs(ctx, tenantDB, t.ID, comp.ID, vhsMap[comp.ID])
