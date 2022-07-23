@@ -620,7 +620,7 @@ type VisitHistorySummaryRow struct {
 
 // 大会ごとの課金レポートを計算する
 func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string) (*BillingReport, error) {
-	cacheKey := fmt.Sprintf("%s-%s", tenantID, competitonID)
+	cacheKey := fmt.Sprintf("%d-%s", tenantID, competitonID)
 	cache, ok := billingCache.Get(cacheKey)
 	if ok {
 		return cache.(*BillingReport), nil
@@ -1505,7 +1505,7 @@ func competitionRankingHandler(c echo.Context) error {
 		)
 	}
 	if val, _ := ret.RowsAffected(); val == 1 {
-		key := fmt.Sprintf("%s-%s", tenant.ID, competitionID)
+		key := fmt.Sprintf("%d-%s", tenant.ID, competitionID)
 		if !competition.FinishedAt.Valid || now <= competition.FinishedAt.Int64 {
 			mux.Lock()
 			visitHistoryCache[key] = append(visitHistoryCache[key], v.playerID)
