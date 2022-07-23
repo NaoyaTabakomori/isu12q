@@ -10,9 +10,18 @@ LOG_BACKUP_DIR=/var/log/isucon
 USER=isucon
 KEY_OPTION=""
 
-WEB_SERVERS="54.150.35.238"
-APP_SERVERS="54.150.35.238"
-DB_SERVER="54.150.35.238"
+WEB_SERVERS=("54.249.163.13" "35.79.110.160")
+APP_SERVERS=("54.249.163.13" "35.79.110.160")
+DB_SERVERS=("54.249.163.13" "35.79.110.160")
+
+# for WEB_SERVER in "${WEB_SERVERS[@]}"
+# do
+# cat <<EOS | ssh -A $KEY_OPTION $USER@$WEB_SERVER sh
+# echo $WEB_SERVER
+# ls
+# EOS
+# done
+
 
 BACKUP_TARGET_LIST="/var/lib/mysql/mysqld-slow.log /var/log/nginx/access.log /var/log/nginx/error.log"
 
@@ -23,7 +32,7 @@ fi
 
 # sed -n -r 's/^(LogFormat.*)(" combined)/\1 %D\2/p' /etc/httpd/conf/httpd.conf
 echo "Stop Web Server"
-for WEB_SERVER in $WEB_SERVERS
+for WEB_SERVER in "${WEB_SERVERS[@]}"
 do
 cat <<EOS | ssh -A $KEY_OPTION $USER@$WEB_SERVER sh
 sudo systemctl stop nginx
@@ -31,7 +40,7 @@ EOS
 done
 
 echo "Stop Application Server"
-for APP_SERVER in $APP_SERVERS
+for APP_SERVER in "${APP_SERVERS[@]}"
 do
 cat <<EOS | ssh -A $KEY_OPTION $USER@$APP_SERVER sh
 sudo systemctl stop isuports.service
@@ -39,12 +48,15 @@ EOS
 done
 
 echo "Stop DataBase Server"
+for DB_SERVER in "${DB_SERVERS[@]}"
+do
 cat <<EOS | ssh -A $KEY_OPTION $USER@$DB_SERVER sh
 sudo systemctl stop mysql
 EOS
+done
 
 echo "Get Current git hash"
-for APP_SERVER in $APP_SERVERS
+for APP_SERVER in "${APP_SERVERS[@]}"
 do
 hash=`cat <<EOS | ssh -A $KEY_OPTION $USER@$APP_SERVER sh
 cd $PROJECT_ROOT
@@ -59,7 +71,7 @@ echo "Backup App Server LOG"
 for LOG_PATH in $BACKUP_TARGET_LIST
 do
     LOG_FILE=`basename $LOG_PATH`
-for APP_SERVER in $APP_SERVERS
+for APP_SERVER in "${APP_SERVERS[@]}"
 do
     cat <<EOS | ssh -A $KEY_OPTION $USER@$APP_SERVER sh
 sudo mkdir -p ${LOG_BACKUP_DIR}
@@ -72,7 +84,7 @@ set -e
 
 echo "Current Hash: $hash"
 echo "Update Project"
-for APP_SERVER in $APP_SERVERS
+for APP_SERVER in "${APP_SERVERS[@]}"
 do
 cat <<EOS | ssh -A $KEY_OPTION $USER@$APP_SERVER sh
 cd $PROJECT_ROOT
@@ -84,7 +96,7 @@ git pull --rebase
 EOS
 done
 echo "Get new git hash"
-for APP_SERVER in $APP_SERVERS
+for APP_SERVER in "${APP_SERVERS[@]}"
 do
 new_hash=`cat <<EOS | ssh -A $KEY_OPTION $USER@$APP_SERVER sh
 cd $PROJECT_ROOT
@@ -93,12 +105,15 @@ EOS`
 echo "Current Hash: $new_hash"
 done
 echo "Start Database Server"
+for DB_SERVER in "${DB_SERVERS[@]}"
+do
 cat <<EOS | ssh -A $KEY_OPTION $USER@$DB_SERVER sh
 sudo swapoff -a && sudo swapon -a
 sudo systemctl start mysql
 EOS
+done
 echo "Start App Server"
-for APP_SERVER in $APP_SERVERS
+for APP_SERVER in "${APP_SERVERS[@]}"
 do
 cat <<EOS | ssh -A $KEY_OPTION $USER@$APP_SERVER sh
 sudo swapoff -a && sudo swapon -a
@@ -106,7 +121,7 @@ sudo systemctl start isuports.service
 EOS
 done
 echo "Start Web Server"
-for WEB_SERVER in $WEB_SERVERS
+for WEB_SERVER in "${WEB_SERVERS[@]}"
 do
 cat <<EOS | ssh -A $KEY_OPTION $USER@$WEB_SERVER sh
 sudo swapoff -a && sudo swapon -a
