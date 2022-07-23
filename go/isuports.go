@@ -623,7 +623,7 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 	// ランキングにアクセスした参加者のIDを取得する
 	vhs := []VisitHistorySummaryRow{}
 
-	if tenant_id%2 == 0 {
+	if tenantID%2 == 0 {
 
 		if err := vhDB.SelectContext(
 			ctx,
@@ -1510,7 +1510,7 @@ func competitionRankingHandler(c echo.Context) error {
 		return fmt.Errorf("error Select tenant: id=%d, %w", v.tenantID, err)
 	}
 
-	if tenant_id%2 == 0 {
+	if tenant.ID%2 == 0 {
 
 		if _, err := vhDB.ExecContext(
 			ctx,
