@@ -371,6 +371,19 @@ func retrievePlayer(ctx context.Context, tenantDB dbOrTx, id string) (*PlayerRow
 	return &p, nil
 }
 
+func retrievePlayers(ctx context.Context, tenantDB dbOrTx, ids []string) ([]*PlayerRow, error) {
+	var p []*PlayerRow
+	sql := `SELECT * FROM player WHERE id IN (?)`
+	sql, params, err := sqlx.In(sql, ids)
+	if err != nil {
+		return nil, err
+	}
+	if err := tenantDB.SelectContext(ctx, &p, sql, params...); err != nil {
+		return nil, fmt.Errorf("error Select players: ids=%v, %w", ids, err)
+	}
+	return p, nil
+}
+
 // 参加者を認可する
 // 参加者向けAPIで呼ばれる
 func authorizePlayer(ctx context.Context, tenantDB dbOrTx, id string) error {
@@ -1379,6 +1392,20 @@ func competitionRankingHandler(c echo.Context) error {
 	); err != nil {
 		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
 	}
+
+	playerIDs := make([]string, 0, len(pss))
+	for _, ps := range pss {
+		playerIDs = append(playerIDs, ps.PlayerID)
+	}
+	players, err := retrievePlayers(ctx, tenantDB, playerIDs)
+	if err != nil {
+		return fmt.Errorf("error retrievePlayer: %w", err)
+	}
+	playerMap := make(map[string]*PlayerRow)
+	for _, p := range players {
+		playerMap[p.ID] = p
+	}
+
 	ranks := make([]CompetitionRank, 0, len(pss))
 	scoredPlayerSet := make(map[string]struct{}, len(pss))
 	for _, ps := range pss {
@@ -1388,10 +1415,7 @@ func competitionRankingHandler(c echo.Context) error {
 			continue
 		}
 		scoredPlayerSet[ps.PlayerID] = struct{}{}
-		p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
-		if err != nil {
-			return fmt.Errorf("error retrievePlayer: %w", err)
-		}
+		p := playerMap[ps.PlayerID]
 		ranks = append(ranks, CompetitionRank{
 			Score:             ps.Score,
 			PlayerID:          p.ID,
