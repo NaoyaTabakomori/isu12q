@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -57,6 +58,7 @@ var (
 	playerNameCache   = map[string]string{}
 	billingCache      = cache.New(60*time.Second, 60*time.Second)
 	visitHistoryCache = make(map[string][]string)
+	mux               sync.RWMutex
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -629,9 +631,11 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 	}
 
 	billingMap := map[string]string{}
+	mux.RLock()
 	for _, playerID := range visitHistoryCache[cacheKey] {
 		billingMap[playerID] = "visitor"
 	}
+	mux.RUnlock()
 
 	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
 	fl, err := flockByTenantID(tenantID)
@@ -1503,7 +1507,9 @@ func competitionRankingHandler(c echo.Context) error {
 	if val, _ := ret.RowsAffected(); val == 1 {
 		key := fmt.Sprintf("%s-%s", tenant.ID, competitionID)
 		if !competition.FinishedAt.Valid || now < competition.FinishedAt.Int64 {
+			mux.Lock()
 			visitHistoryCache[key] = append(visitHistoryCache[key], v.playerID)
+			mux.Unlock()
 		}
 	}
 
