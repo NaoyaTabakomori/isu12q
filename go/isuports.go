@@ -375,6 +375,9 @@ func retrievePlayer(ctx context.Context, tenantDB dbOrTx, id string) (*PlayerRow
 
 func retrievePlayers(ctx context.Context, tenantDB dbOrTx, ids []string) ([]*PlayerRow, error) {
 	var p []*PlayerRow
+	if len(ids) == 0 {
+		return p, nil
+	}
 	sql := `SELECT * FROM player WHERE id IN (?)`
 	sql, params, err := sqlx.In(sql, ids)
 	if err != nil {
@@ -388,6 +391,9 @@ func retrievePlayers(ctx context.Context, tenantDB dbOrTx, ids []string) ([]*Pla
 
 func retrievePlayerNames(ctx context.Context, tenantDB dbOrTx, ids []string) (map[string]string, error) {
 	ret := make(map[string]string)
+	if len(ids) == 0 {
+		return ret, nil
+	}
 	notCached := make([]string, 0, len(ids))
 	for _, id := range ids {
 		if _, ok := playerNameCache[id]; !ok {
@@ -1159,11 +1165,27 @@ func competitionScoreHandler(c echo.Context) error {
 		return playerScoreRows[i].RowNum > playerScoreRows[j].RowNum
 	})
 	playerIDMap := make(map[string]bool)
+	targets := make([]PlayerScoreRow, 0, len(playerScoreRows))
 	for _, ps := range playerScoreRows {
 		if playerIDMap[ps.PlayerID] {
 			continue
 		}
 		playerIDMap[ps.PlayerID] = true
+		targets = append(targets, ps)
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].Score == targets[j].Score {
+			return targets[i].RowNum < targets[j].RowNum
+		}
+		return targets[i].Score > targets[j].Score
+	})
+	rowNumMap := make(map[string]int64)
+	for i, _ := range targets {
+		key := fmt.Sprintf("%s-%s", targets[i].TenantID, targets[i].CompetitionID)
+		rowNumMap[key]++
+		targets[i].RowNum = rowNumMap[key]
+	}
+	for _, ps := range targets {
 		if _, err := tenantDB.NamedExecContext(
 			ctx,
 			"INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
@@ -1476,9 +1498,10 @@ func competitionRankingHandler(c echo.Context) error {
 	if err := tenantDB.SelectContext(
 		ctx,
 		&pss,
-		"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? ORDER BY row_num DESC",
+		"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? AND row_num > ? ORDER BY row_num ASC LIMIT 100",
 		tenant.ID,
 		competitionID,
+		rankAfter,
 	); err != nil {
 		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
 	}
@@ -1507,17 +1530,14 @@ func competitionRankingHandler(c echo.Context) error {
 			RowNum:            ps.RowNum,
 		})
 	}
-	sort.Slice(ranks, func(i, j int) bool {
-		if ranks[i].Score == ranks[j].Score {
-			return ranks[i].RowNum < ranks[j].RowNum
-		}
-		return ranks[i].Score > ranks[j].Score
-	})
+	//sort.Slice(ranks, func(i, j int) bool {
+	//	if ranks[i].Score == ranks[j].Score {
+	//		return ranks[i].RowNum < ranks[j].RowNum
+	//	}
+	//	return ranks[i].Score > ranks[j].Score
+	//})
 	pagedRanks := make([]CompetitionRank, 0, 100)
 	for i, rank := range ranks {
-		if int64(i) < rankAfter {
-			continue
-		}
 		pagedRanks = append(pagedRanks, CompetitionRank{
 			Rank:              int64(i + 1),
 			Score:             rank.Score,
