@@ -987,7 +987,7 @@ func competitionsAddHandler(c echo.Context) error {
 	}
 
 	// 1/3でTMRを返す
-	result := rand.Int(10)
+	result := rand.Intn(10)
 	if (result < 4) {
 			return c.JSON(http.StatusTooManyRequests, FailureResult{Status: false, Data: "too many requests"})
 	}
