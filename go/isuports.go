@@ -1101,7 +1101,16 @@ func competitionScoreHandler(c echo.Context) error {
 	); err != nil {
 		return fmt.Errorf("error Delete player_score: tenantID=%d, competitionID=%s, %w", v.tenantID, competitionID, err)
 	}
+	// rowNumが最大のものを登録する
+	sort.Slice(playerScoreRows, func(i, j int) bool {
+		return playerScoreRows[i].RowNum > playerScoreRows[j].RowNum
+	})
+	playerIDMap := make(map[string]bool)
 	for _, ps := range playerScoreRows {
+		if playerIDMap[ps.PlayerID] {
+			continue
+		}
+		playerIDMap[ps.PlayerID] = true
 		if _, err := tenantDB.NamedExecContext(
 			ctx,
 			"INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
