@@ -710,10 +710,17 @@ func tenantsBillingHandler(c echo.Context) error {
 		return fmt.Errorf("error Select tenant: %w", err)
 	}
 	tenantBillings := make([]TenantWithBilling, 0, len(ts))
+
+	tmp_ts := []TenantRow{}
 	for _, t := range ts {
 		if beforeID != 0 && beforeID <= t.ID {
 			continue
 		}
+		tmp_ts = append(tmp_ts, t)
+	}
+	ts = tmp_ts
+
+	for _, t := range ts {
 		err := func(t TenantRow) error {
 			tb := TenantWithBilling{
 				ID:          strconv.FormatInt(t.ID, 10),
