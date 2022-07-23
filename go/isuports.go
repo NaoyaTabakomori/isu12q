@@ -625,7 +625,7 @@ func getVhsByComps(ctx context.Context, tenantID int64, competitionIDs []string)
 	if err := vhDB.SelectContext(
 		ctx,
 		&vhs,
-		"SELECT player_id, created_at, tenant_id, competition_id AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id IN (?)",
+		"SELECT player_id, created_at AS min_created_at, tenant_id, competition_id FROM visit_history WHERE tenant_id = ? AND competition_id IN (?)",
 		tenantID,
 		competitionIDs,
 	); err != nil && err != sql.ErrNoRows {
