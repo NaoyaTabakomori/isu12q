@@ -639,8 +639,19 @@ func billingReportByCompetitionWithVhs(ctx context.Context, tenantDB dbOrTx, ten
 }
 
 func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitionID string) (*BillingReport, error) {
-	vhs, _ := getVhsByComps(ctx, tenantID, []string{competitionID})
-	return billingReportByCompetitionInternal(ctx, tenantDB, tenantID, competitionID, vhs)
+	vhss, _ := getVhsByComps(ctx, tenantID, []string{competitionID})
+	var vhsMap map[string]*VhsBlob
+	for _, vhs := range vhss {
+		if _, ok := vhsMap[vhs.CompetitionID]; !ok {
+			blob := &VhsBlob{}
+			var rows []*VisitHistorySummaryRow
+			blob.Vhss = rows
+			vhsMap[vhs.CompetitionID] = blob
+		}
+		vhsMap[vhs.CompetitionID].Vhss = append(vhsMap[vhs.CompetitionID].Vhss, vhs)
+	}
+
+	return billingReportByCompetitionInternal(ctx, tenantDB, tenantID, competitionID, vhsMap[competitionID].Vhss)
 }
 
 // 大会ごとの課金レポートを計算する
