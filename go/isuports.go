@@ -49,9 +49,12 @@ var (
 
 	adminDB *sqlx.DB
 
+	vhDB *sqlx.DB
+
 	sqliteDriverName = "sqlite3"
 
 	playerNameCache = map[string]string{}
+
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -74,6 +77,19 @@ func connectAdminDB() (*sqlx.DB, error) {
 	dsn := config.FormatDSN()
 	return sqlx.Open("mysql", dsn)
 }
+
+func connectVHDB() (*sqlx.DB, error) {
+	config := mysql.NewConfig()
+	config.Net = "tcp"
+	config.Addr = getEnv("VH_DB_HOST", "127.0.0.1") + ":" + getEnv("ISUCON_DB_PORT", "3306")
+	config.User = getEnv("ISUCON_DB_USER", "isucon")
+	config.Passwd = getEnv("ISUCON_DB_PASSWORD", "isucon")
+	config.DBName = getEnv("ISUCON_DB_NAME", "isuports")
+	config.ParseTime = true
+	dsn := config.FormatDSN()
+	return sqlx.Open("mysql", dsn)
+}
+
 
 // テナントDBのパスを返す
 func tenantDBPath(id int64) string {
@@ -188,6 +204,14 @@ func Run() {
 	}
 	adminDB.SetMaxOpenConns(10)
 	defer adminDB.Close()
+
+	vhDB, err = connectVHDB()
+	if err != nil {
+		e.Logger.Fatalf("failed to connect db: %v", err)
+		return
+	}
+	vhDB.SetMaxOpenConns(10)
+	defer vhDB.Close()
 
 	port := getEnv("SERVER_APP_PORT", "3000")
 	e.Logger.Infof("starting isuports server on : %s ...", port)
@@ -601,7 +625,7 @@ type VhsBlob struct {
 func getVhsByComps(ctx context.Context, tenantID int64, competitionIDs []string) ([]VisitHistorySummaryRow, error) {
 	// ランキングにアクセスした参加者のIDを取得する
 	vhs := []VisitHistorySummaryRow{}
-	if err := adminDB.SelectContext(
+	if err := vhDB.SelectContext(
 		ctx,
 		&vhs,
 		"SELECT player_id, created_at, tenant_id, competition_id AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id IN (?)",
@@ -735,6 +759,7 @@ func tenantsBillingHandler(c echo.Context) error {
 	if err := adminDB.SelectContext(ctx, &ts, "SELECT * FROM tenant ORDER BY id DESC"); err != nil {
 		return fmt.Errorf("error Select tenant: %w", err)
 	}
+
 	tenantBillings := make([]TenantWithBilling, 0, len(ts))
 
 	tmp_ts := []TenantRow{}
@@ -758,6 +783,8 @@ func tenantsBillingHandler(c echo.Context) error {
 				return fmt.Errorf("failed to connectToTenantDB: %w", err)
 			}
 			defer tenantDB.Close()
+
+
 			cs := []CompetitionRow{}
 			if err := tenantDB.SelectContext(
 				ctx,
@@ -783,6 +810,7 @@ func tenantsBillingHandler(c echo.Context) error {
 				}
 				vhsMap[vhs.CompetitionID] = append(vhsMap[vhs.CompetitionID], vhs)
 			}
+
 
 			for _, comp := range cs {
 				report, err := billingReportByCompetitionWithVhs(ctx, tenantDB, t.ID, comp.ID, vhsMap[comp.ID])
@@ -1513,7 +1541,7 @@ func competitionRankingHandler(c echo.Context) error {
 		return fmt.Errorf("error Select tenant: id=%d, %w", v.tenantID, err)
 	}
 
-	if _, err := adminDB.ExecContext(
+	if _, err := vhDB.ExecContext(
 		ctx,
 		"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE updated_at = ?",
 		v.playerID, tenant.ID, competitionID, now, now, now,
