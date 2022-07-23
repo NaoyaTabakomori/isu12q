@@ -54,8 +54,9 @@ var (
 
 	sqliteDriverName = "sqlite3"
 
-	playerNameCache = map[string]string{}
-	billingCache    = cache.New(60*time.Second, 60*time.Second)
+	playerNameCache   = map[string]string{}
+	billingCache      = cache.New(60*time.Second, 60*time.Second)
+	visitHistoryCache = make(map[string][]string)
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -627,24 +628,9 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 		return nil, fmt.Errorf("error retrieveCompetition: %w", err)
 	}
 
-	// ランキングにアクセスした参加者のIDを取得する
-	vhs := []VisitHistorySummaryRow{}
-	if err := vhDB.SelectContext(
-		ctx,
-		&vhs,
-		"SELECT player_id, created_at AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ?",
-		tenantID,
-		comp.ID,
-	); err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
-	}
 	billingMap := map[string]string{}
-	for _, vh := range vhs {
-		// competition.finished_atよりもあとの場合は、終了後に訪問したとみなして大会開催内アクセス済みとみなさない
-		if comp.FinishedAt.Valid && comp.FinishedAt.Int64 < vh.MinCreatedAt {
-			continue
-		}
-		billingMap[vh.PlayerID] = "visitor"
+	for _, playerID := range visitHistoryCache[cacheKey] {
+		billingMap[playerID] = "visitor"
 	}
 
 	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
@@ -1503,15 +1489,22 @@ func competitionRankingHandler(c echo.Context) error {
 		return fmt.Errorf("error Select tenant: id=%d, %w", v.tenantID, err)
 	}
 
-	if _, err := vhDB.ExecContext(
+	ret, err := vhDB.ExecContext(
 		ctx,
 		"INSERT INTO visit_history (player_id, tenant_id, competition_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE updated_at = ?",
 		v.playerID, tenant.ID, competitionID, now, now, now,
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf(
 			"error Insert visit_history: playerID=%s, tenantID=%d, competitionID=%s, createdAt=%d, updatedAt=%d, %w",
 			v.playerID, tenant.ID, competitionID, now, now, err,
 		)
+	}
+	if val, _ := ret.RowsAffected(); val == 1 {
+		key := fmt.Sprintf("%s-%s", tenant.ID, competitionID)
+		if !competition.FinishedAt.Valid || now < competition.FinishedAt.Int64 {
+			visitHistoryCache[key] = append(visitHistoryCache[key], v.playerID)
+		}
 	}
 
 	var rankAfter int64
