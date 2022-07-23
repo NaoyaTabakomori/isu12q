@@ -1506,7 +1506,7 @@ func competitionRankingHandler(c echo.Context) error {
 	}
 	if val, _ := ret.RowsAffected(); val == 1 {
 		key := fmt.Sprintf("%s-%s", tenant.ID, competitionID)
-		if !competition.FinishedAt.Valid || now < competition.FinishedAt.Int64 {
+		if !competition.FinishedAt.Valid || now <= competition.FinishedAt.Int64 {
 			mux.Lock()
 			visitHistoryCache[key] = append(visitHistoryCache[key], v.playerID)
 			mux.Unlock()
