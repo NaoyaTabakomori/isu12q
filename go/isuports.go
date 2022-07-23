@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"math/rand"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/gofrs/flock"
