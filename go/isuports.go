@@ -50,6 +50,8 @@ var (
 	adminDB *sqlx.DB
 
 	sqliteDriverName = "sqlite3"
+
+	playerNameCache = map[string]string{}
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -384,6 +386,31 @@ func retrievePlayers(ctx context.Context, tenantDB dbOrTx, ids []string) ([]*Pla
 	return p, nil
 }
 
+func retrievePlayerNames(ctx context.Context, tenantDB dbOrTx, ids []string) (map[string]string, error) {
+	ret := make(map[string]string)
+	notCached := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := playerNameCache[id]; !ok {
+			notCached = append(notCached, id)
+			continue
+		}
+		ret[id] = playerNameCache[id]
+	}
+	var p []*PlayerRow
+	sql := `SELECT * FROM player WHERE id IN (?)`
+	sql, params, err := sqlx.In(sql, notCached)
+	if err != nil {
+		return nil, err
+	}
+	if err := tenantDB.SelectContext(ctx, &p, sql, params...); err != nil {
+		return nil, fmt.Errorf("error Select players: ids=%v, %w", ids, err)
+	}
+	for _, pp := range p {
+		ret[pp.ID] = pp.DisplayName
+	}
+	return ret, nil
+}
+
 // 参加者を認可する
 // 参加者向けAPIで呼ばれる
 func authorizePlayer(ctx context.Context, tenantDB dbOrTx, id string) error {
@@ -416,6 +443,19 @@ func retrieveCompetition(ctx context.Context, tenantDB dbOrTx, id string) (*Comp
 		return nil, fmt.Errorf("error Select competition: id=%s, %w", id, err)
 	}
 	return &c, nil
+}
+
+func retrieveCompetitions(ctx context.Context, tenantDB dbOrTx, ids []string) ([]*CompetitionRow, error) {
+	var c []*CompetitionRow
+	sql := `SELECT * FROM competition WHERE id IN (?)`
+	sql, params, err := sqlx.In(sql, ids)
+	if err != nil {
+		return nil, err
+	}
+	if err := tenantDB.SelectContext(ctx, &c, sql, params...); err != nil {
+		return nil, fmt.Errorf("error Select competitions: ids=%v, %w", ids, err)
+	}
+	return c, nil
 }
 
 type PlayerScoreRow struct {
@@ -1306,16 +1346,36 @@ func playerHandler(c echo.Context) error {
 	*/
 
 	psds := make([]PlayerScoreDetail, 0, len(pss))
+
+	cIDs := []string{}
+	cIDtoPs := make(map[string]PlayerScoreRow)
 	for _, ps := range pss {
-		comp, err := retrieveCompetition(ctx, tenantDB, ps.CompetitionID)
-		if err != nil {
-			return fmt.Errorf("error retrieveCompetition: %w", err)
-		}
+		cIDs = append(cIDs, ps.CompetitionID)
+		cIDtoPs[ps.CompetitionID] = ps
+	}
+	comps, err := retrieveCompetitions(ctx, tenantDB, cIDs)
+	if err != nil {
+		return fmt.Errorf("error retrieveCompetitions: %w", err)
+	}
+	for _, comp := range comps {
 		psds = append(psds, PlayerScoreDetail{
 			CompetitionTitle: comp.Title,
-			Score:            ps.Score,
+			Score:            cIDtoPs[comp.ID].Score,
 		})
 	}
+
+	/*
+		for _, ps := range pss {
+			comp, err := retrieveCompetition(ctx, tenantDB, ps.CompetitionID)
+			if err != nil {
+				return fmt.Errorf("error retrieveCompetition: %w", err)
+			}
+			psds = append(psds, PlayerScoreDetail{
+				CompetitionTitle: comp.Title,
+				Score:            ps.Score,
+			})
+		}
+	*/
 
 	res := SuccessResult{
 		Status: true,
@@ -1427,15 +1487,10 @@ func competitionRankingHandler(c echo.Context) error {
 	for _, ps := range pss {
 		playerIDs = append(playerIDs, ps.PlayerID)
 	}
-	players, err := retrievePlayers(ctx, tenantDB, playerIDs)
+	nameMap, err := retrievePlayerNames(ctx, tenantDB, playerIDs)
 	if err != nil {
 		return fmt.Errorf("error retrievePlayer: %w", err)
 	}
-	playerMap := make(map[string]*PlayerRow)
-	for _, p := range players {
-		playerMap[p.ID] = p
-	}
-
 	ranks := make([]CompetitionRank, 0, len(pss))
 	scoredPlayerSet := make(map[string]struct{}, len(pss))
 	for _, ps := range pss {
@@ -1445,11 +1500,10 @@ func competitionRankingHandler(c echo.Context) error {
 			continue
 		}
 		scoredPlayerSet[ps.PlayerID] = struct{}{}
-		p := playerMap[ps.PlayerID]
 		ranks = append(ranks, CompetitionRank{
 			Score:             ps.Score,
-			PlayerID:          p.ID,
-			PlayerDisplayName: p.DisplayName,
+			PlayerID:          ps.PlayerID,
+			PlayerDisplayName: nameMap[ps.PlayerID],
 			RowNum:            ps.RowNum,
 		})
 	}
